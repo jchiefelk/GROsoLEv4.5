@@ -9,8 +9,8 @@
 int main (int argc,char *argv[])
 {
     // This little piece will stop execution if wrong input//
-    if (argc != 8){
-        printf("%s","Usage: %s Distance_File(.txt) Nsol NatomsperMol SimLength(ps) TimeStep(ps) poreradius(nm) OutFile\n");
+    if (argc != 10){
+        printf("%s","Usage: %s (1)SimTraj(.xtc) (2)SimTop(.tpr) (3)Distance_File(.txt) (4)Nsol (5)NatomsperMol (6)SimLength(ps) (7)TimeStep(ps) (8)poreradius(nm) (9)OutFile\n");
         exit(1);
     }
 	else{
@@ -18,28 +18,30 @@ int main (int argc,char *argv[])
     int i,j,k,nT,porenum,Nsol,solid,Natoms,atomid;
     float poreradius,timestep,simlength,dist;
     double LJ,Cou,etime,energy;
-    Nsol = atoi(argv[2]);
-    Natoms = atoi(argv[3]);
-    simlength=atof(argv[4]);
-    timestep=atof(argv[5]);
-    poreradius=atof(argv[6]);
+    Nsol = atoi(argv[4]);
+    Natoms = atoi(argv[5]);
+    simlength=atof(argv[6]);
+    timestep=atof(argv[7]);
+    poreradius=atof(argv[8]);
     nT=simlength/timestep;
-    char infile[40],outfile[40],buf[80],intermol_energies[80];
+    char infile[40],outfile[40],buf[80],intermol_energies[80],xtc[80],tpr[80];
+    sprintf(xtc,"%s",argv[1]);
+    sprintf(tpr,"%s",argv[2]);
     FILE *OUT;
-    sprintf(outfile,"%s",argv[7]);
+    sprintf(outfile,"%s",argv[9]);
     OUT = fopen(outfile,"w");
         /*Distance Index*/
         FILE *IN;
-        sprintf(infile,"%s",argv[1]);
+        sprintf(infile,"%s",argv[3]);
         IN = fopen(infile,"r");
+        //Distance File Headers//
+        fgets(buf,180,IN);
+        fgets(buf,180,IN);
         for(i=0;i<nT;i++){
         FILE *ndx;
         ndx = fopen("energy.ndx","w");
         float time = i*timestep;
         char c1[100],c2[100],c3[100];
-        //Distance File Headers//
-          fgets(buf,180,IN);
-          fgets(buf,180,IN);
           porenum=0;
           fprintf(ndx,"[ PORESOL ]\n");
         for(j=0;j<Nsol;j++){
@@ -47,7 +49,7 @@ int main (int argc,char *argv[])
             sscanf(buf,"%i %f",&solid,&dist);
             if (dist < poreradius){
             porenum+=1;
-            sprintf(c1,"g_select -f full.xtc -s full.tpr -on id.ndx -select 'resnr %i' -b %f -e %f ",solid,time,time);
+            sprintf(c1,"g_select -f %s -s %s -on id.ndx -select 'resnr %i' -b %f -e %f ",xtc,tpr,solid,time,time);
             system(c1);
             system("sed '1,1d' id.ndx > id.txt");
             char temp[80];
@@ -63,11 +65,14 @@ int main (int argc,char *argv[])
             }
         }
      fclose(ndx);
-            
-    sprintf(c2,"trjconv -f full.xtc -s full.tpr -n energy.ndx -o energy.xtc -b %f -e %f ", time,time);
+       
+    //Get Structure and Topology//
+    sprintf(c1,"sh topology.sh %s",tpr);
+    system(c1);
+    sprintf(c2,"sh structure.sh %s %s %f %f ",xtc,tpr,time,time);
     system(c2);
-    sprintf(c3,"sh topology.sh");
-    system(c3);
+            
+    system("mdrun -rerun energy.xtc -s energy.tpr -e energy.edr");
     //Use Shell Script to Noninteractively use g_energy//
     char sh1[50];
     sprintf(sh1,"sh energy.sh");
@@ -81,29 +86,30 @@ int main (int argc,char *argv[])
 				fgets(buf,180,xvg);
 				if(j==20){
                     sscanf(buf,"%lf %lf %lf",&etime,&LJ,&Cou);
-                    fprintf(OUT,"%lf %lf %lf\n",etime,LJ,Cou);
-                    energy += (LJ+Cou);
+                    fprintf(OUT,"%lf %lf %lf %lf\n",etime,LJ,Cou,(LJ+Cou)/Natoms);
+                    energy += (LJ+Cou)/Natoms;
                 }
 			}
         fclose(xvg);
         //Calculate Total Energy//
-        energy/=nT;
+            //Delete Unwanted Files//
+            system("rm -f energy.edr");
+            system("rm -f energy.ndx");
+            system("rm -f energy.tpr");
+            system("rm -f energy.xvg");
+            system("rm -f energy.xtc");
+            system("rm -f md.log");
+            system("rm -f traj.trr");
+            system("sh clean.sh");
             
     }
         fclose(IN);
         /******End of Energy Calcularion*****/
-        //Delete Unwanted Files//
-        system("rm -f energy.edr");
-        system("rm -f energy.ndx");
-        system("rm -f energy.tpr");
-        system("rm -f energy.xvg");
-        system("rm -f energy.xtc");
-        system("rm -f md.log");
-        system("rm -f traj.trr");
-        system("sh clean.sh");
-        
+        energy/=nT;
         //Print Total Average Intermolecular Energy at End of File//
-        fprintf(OUT,"Average Interaction Energy = %f",energy);
+        fprintf(OUT,"Average Interaction Energy(kJ/mol) = %f\n",energy);
+        fprintf(OUT,"Average Interaction Energy(kcal/mol) = %f\n",energy*0.239);
+        
         fclose(OUT);
         
     }
